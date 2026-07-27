@@ -63,11 +63,28 @@ COLUNAS_ALIASES = {
         "DOCUMENTO DO TITULAR",
     ],
     "razao_social": [
-        "NOME",
         "RAZAO SOCIAL",
         "RAZÃO SOCIAL",
         "NOME EMPRESARIAL",
+        "EMPRESA",
         "NOME DO CLIENTE",
+        "NOME",
+    ],
+    "nome": [
+        "NOME DO TITULAR",
+        "NOME TITULAR",
+        "TITULAR",
+        "RESPONSAVEL",
+        "RESPONSÁVEL",
+        "NOME DO RESPONSAVEL",
+        "NOME DO RESPONSÁVEL",
+    ],
+    "cpf": [
+        "CPF DO TITULAR",
+        "CPF TITULAR",
+        "CPF",
+        "DOCUMENTO DO RESPONSAVEL",
+        "DOCUMENTO DO RESPONSÁVEL",
     ],
     "telefone": [
         "TELEFONE DO TITULAR",
@@ -281,6 +298,8 @@ def preparar_arquivo(arquivo: Path) -> tuple[pd.DataFrame, dict]:
 
     col_cnpj = escolher_coluna(df, COLUNAS_ALIASES["cnpj"])
     col_nome = escolher_coluna(df, COLUNAS_ALIASES["razao_social"])
+    col_nome_titular = escolher_coluna(df, COLUNAS_ALIASES["nome"])
+    col_cpf = escolher_coluna(df, COLUNAS_ALIASES["cpf"])
     col_telefone = escolher_coluna(df, COLUNAS_ALIASES["telefone"])
     col_email = escolher_coluna(df, COLUNAS_ALIASES["email"])
     col_data = escolher_coluna(df, COLUNAS_ALIASES["data_validacao"])
@@ -303,6 +322,16 @@ def preparar_arquivo(arquivo: Path) -> tuple[pd.DataFrame, dict]:
     saida = pd.DataFrame(index=df.index)
     saida["CNPJ_NUMERICO"] = df[col_cnpj].map(somente_digitos)
     saida["RAZAO_SOCIAL"] = df[col_nome].fillna("").astype(str).str.strip()
+
+    if col_nome_titular:
+        saida["NOME"] = df[col_nome_titular].fillna("").astype(str).str.strip()
+    else:
+        saida["NOME"] = ""
+
+    if col_cpf:
+        saida["CPF"] = df[col_cpf].map(somente_digitos)
+    else:
+        saida["CPF"] = ""
 
     if col_telefone:
         saida["TELEFONE"] = df[col_telefone].map(somente_digitos)
@@ -435,6 +464,8 @@ def identificar_nao_renovados(
         base.groupby("CNPJ_NUMERICO", as_index=False)
         .agg(
             RAZAO_SOCIAL=("RAZAO_SOCIAL", ultimo_valor_valido),
+            NOME=("NOME", ultimo_valor_valido),
+            CPF=("CPF", ultimo_valor_valido),
             TELEFONE=("TELEFONE", ultimo_valor_valido),
             EMAIL=("EMAIL", ultimo_valor_valido),
             ULTIMA_VALIDACAO=("DATA_VALIDACAO", "max"),
@@ -468,11 +499,13 @@ def identificar_nao_renovados(
 
     nao_renovados = nao_renovados[
         [
+            "ULTIMA_VALIDACAO",
             "CNPJ",
             "RAZAO_SOCIAL",
+            "NOME",
+            "CPF",
             "TELEFONE",
             "EMAIL",
-            "ULTIMA_VALIDACAO",
             "MES_ULTIMA_VALIDACAO",
             "QTD_VALIDACOES",
             "ANOS_COM_VALIDACAO",
@@ -506,6 +539,29 @@ def gerar_excel(
     with pd.ExcelWriter(buffer, engine="xlsxwriter", datetime_format="dd/mm/yyyy") as writer:
         leads_export = leads.copy()
         todos_export = todos_clientes.copy()
+
+        # Ordem solicitada para a planilha de leads:
+        # A Última validação | B CNPJ | C Razão Social | D Nome | E CPF | F Telefone
+        colunas_iniciais = [
+            "ULTIMA_VALIDACAO",
+            "CNPJ",
+            "RAZAO_SOCIAL",
+            "NOME",
+            "CPF",
+            "TELEFONE",
+        ]
+        colunas_restantes = [
+            coluna for coluna in leads_export.columns if coluna not in colunas_iniciais
+        ]
+        leads_export = leads_export[
+            [coluna for coluna in colunas_iniciais if coluna in leads_export.columns]
+            + colunas_restantes
+        ].rename(
+            columns={
+                "ULTIMA_VALIDACAO": "ULTIMA VALIDAÇÃO",
+                "RAZAO_SOCIAL": "RAZÃO SOCIAL",
+            }
+        )
 
         leads_export.to_excel(
             writer,
@@ -565,7 +621,7 @@ def gerar_excel(
                 if "DATA" in normalizar_texto(coluna) or "VALIDACAO" in normalizar_texto(coluna):
                     ws.set_column(idx, idx, max(largura, 14), formato_data)
 
-                if normalizar_texto(coluna) in {"CNPJ", "TELEFONE"}:
+                if normalizar_texto(coluna) in {"CNPJ", "CPF", "TELEFONE"}:
                     ws.set_column(idx, idx, max(largura, 18), formato_texto)
 
     buffer.seek(0)
@@ -721,16 +777,20 @@ if "leads" in st.session_state:
 
         tabela_visual = exibicao[
             [
+                "ULTIMA_VALIDACAO",
                 "CNPJ",
                 "RAZAO_SOCIAL",
+                "NOME",
+                "CPF",
                 "TELEFONE",
                 "EMAIL",
-                "ULTIMA_VALIDACAO",
                 "MES_ULTIMA_VALIDACAO",
             ]
         ].rename(
             columns={
                 "RAZAO_SOCIAL": "Razão social",
+                "NOME": "Nome",
+                "CPF": "CPF",
                 "TELEFONE": "Telefone",
                 "EMAIL": "E-mail",
                 "ULTIMA_VALIDACAO": "Última validação",
