@@ -54,13 +54,27 @@ MESES = {
     "DEZEMBRO": 12,
 }
 
+NOMES_MESES = {
+    1: "Janeiro",
+    2: "Fevereiro",
+    3: "Março",
+    4: "Abril",
+    5: "Maio",
+    6: "Junho",
+    7: "Julho",
+    8: "Agosto",
+    9: "Setembro",
+    10: "Outubro",
+    11: "Novembro",
+    12: "Dezembro",
+}
+
 COLUNAS_ALIASES = {
     "cnpj": [
         "DOCUMENTO",
         "CNPJ",
         "CPF/CNPJ",
         "CPF CNPJ",
-        "DOCUMENTO DO TITULAR",
     ],
     "razao_social": [
         "RAZAO SOCIAL",
@@ -80,11 +94,7 @@ COLUNAS_ALIASES = {
         "NOME DO RESPONSÁVEL",
     ],
     "cpf": [
-        "CPF DO TITULAR",
-        "CPF TITULAR",
-        "CPF",
-        "DOCUMENTO DO RESPONSAVEL",
-        "DOCUMENTO DO RESPONSÁVEL",
+        "DOCUMENTO DO TITULAR",
     ],
     "telefone": [
         "TELEFONE DO TITULAR",
@@ -688,21 +698,60 @@ if not arquivos:
     )
     st.stop()
 
-with st.expander(f"Arquivos encontrados: {len(arquivos)}", expanded=False):
+st.subheader("Período da análise")
+meses_selecionados_nomes = st.multiselect(
+    "Selecione um ou mais meses para processar",
+    options=list(NOMES_MESES.values()),
+    default=list(NOMES_MESES.values()),
+    help=(
+        "Serão processadas somente as planilhas cujos nomes correspondam aos "
+        "meses selecionados, considerando os anos de 2024, 2025 e 2026."
+    ),
+)
+
+meses_selecionados = {
+    numero for numero, nome in NOMES_MESES.items() if nome in meses_selecionados_nomes
+}
+arquivos_filtrados = [
+    arquivo
+    for arquivo in arquivos
+    if extrair_mes_ano_do_nome(arquivo.name)[0] in meses_selecionados
+]
+
+if not meses_selecionados:
+    st.warning("Selecione pelo menos um mês para processar.")
+elif not arquivos_filtrados:
+    st.warning("Nenhuma planilha foi encontrada para os meses selecionados.")
+
+with st.expander(
+    f"Arquivos que serão processados: {len(arquivos_filtrados)}",
+    expanded=False,
+):
     st.dataframe(
         pd.DataFrame(
             {
-                "Arquivo": [a.name for a in arquivos],
-                "Caminho": [str(a) for a in arquivos],
+                "Arquivo": [a.name for a in arquivos_filtrados],
+                "Mês": [
+                    NOMES_MESES.get(extrair_mes_ano_do_nome(a.name)[0], "Não identificado")
+                    for a in arquivos_filtrados
+                ],
+                "Caminho": [str(a) for a in arquivos_filtrados],
             }
         ),
         use_container_width=True,
         hide_index=True,
     )
 
-if st.button("Processar planilhas", type="primary", use_container_width=True):
-    with st.spinner("Lendo e consolidando os arquivos..."):
-        dados, resumo = consolidar_dados(arquivos)
+processar = st.button(
+    "Processar planilhas",
+    type="primary",
+    use_container_width=True,
+    disabled=not meses_selecionados or not arquivos_filtrados,
+)
+
+if processar:
+    with st.spinner("Lendo e consolidando os arquivos selecionados..."):
+        dados, resumo = consolidar_dados(arquivos_filtrados)
 
     if dados.empty:
         st.error(
@@ -721,12 +770,17 @@ if st.button("Processar planilhas", type="primary", use_container_width=True):
     st.session_state["resumo"] = resumo
     st.session_state["todos_clientes"] = todos_clientes
     st.session_state["dados"] = dados
+    st.session_state["meses_processados"] = meses_selecionados_nomes
 
 if "leads" in st.session_state:
     leads = st.session_state["leads"]
     resumo = st.session_state["resumo"]
     todos_clientes = st.session_state["todos_clientes"]
     dados = st.session_state["dados"]
+    meses_processados = st.session_state.get("meses_processados", [])
+
+    if meses_processados:
+        st.caption("Meses processados: " + ", ".join(meses_processados))
 
     total_cnpjs = dados["CNPJ_NUMERICO"].nunique()
     total_validacoes = dados["_CHAVE_EVENTO"].nunique()
